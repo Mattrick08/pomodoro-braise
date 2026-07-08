@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Braise — Minuteur Pomodoro</title>
+<meta name="description" content="Un minuteur Pomodoro simple : un grand chiffre, un fond noir, une sonnerie à la fin.">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+  :root{
+    --bg: #0a0a0a;
+    --bg-elevated: #141210;
+    --text-primary: #f5f0e8;
+    --text-muted: #6b645c;
+    --ember: #ff4d2e;
+    --ember-dim: #7a2515;
+    --ember-glow: #ff8c5c;
+    --ring-track: #201c19;
+    --font-display: 'Space Mono', 'JetBrains Mono', monospace;
+    --font-ui: 'Inter', -apple-system, sans-serif;
+  }
+
+  @font-face {
+    font-family: 'Space Mono';
+    src: local('Space Mono');
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    overflow: hidden;
+    overscroll-behavior: none;
+    user-select: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    position: relative;
+  }
+
+  /* subtle vignette + grain for depth, not decoration for its own sake */
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);
+    z-index: 1;
+  }
+
+  .app {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: clamp(24px, 4vh, 40px);
+    width: 100%;
+    max-width: 640px;
+    padding: 20px;
+  }
+
+  /* ---- Ring + time display ---- */
+  .ring-wrap {
+    position: relative;
+    width: min(72vw, 60vh, 420px);
+    height: min(72vw, 60vh, 420px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ring-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+
+  .ring-track { stroke: var(--ring-track); fill: none; stroke-width: 3; }
+  .ring-progress {
+    stroke: var(--ember);
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.3s linear;
+    filter: drop-shadow(0 0 6px rgba(255,77,46,0.55));
+  }
+
+  .ring-wrap.breathing .ring-progress {
+    animation: breathe 4s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(255,77,46,0.45)); }
+    50% { filter: drop-shadow(0 0 16px rgba(255,140,92,0.85)); }
+  }
+
+  .time-display {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(3.2rem, 13vw, 6.5rem);
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    cursor: text;
+    text-align: center;
+  }
+
+  .time-display.editing { color: var(--ember-glow); }
+
+  .session-label {
+    position: absolute;
+    bottom: 18%;
+    font-family: var(--font-ui);
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  /* ---- Presets ---- */
+  .presets {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  .chip {
+    background: var(--bg-elevated);
+    border: 1px solid #2a2521;
+    color: var(--text-muted);
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 9px 16px;
+    border-radius: 100px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+  }
+
+  .chip:hover { border-color: var(--ember-dim); color: var(--text-primary); }
+  .chip.active {
+    background: var(--ember-dim);
+    border-color: var(--ember);
+    color: var(--text-primary);
+  }
+
+  .chip.add {
+    color: var(--ember-glow);
+    border-style: dashed;
+  }
+
+  .chip .remove {
+    margin-left: 8px;
+    opacity: 0.5;
+    font-size: 0.75em;
+  }
+  .chip .remove:hover { opacity: 1; }
+
+  /* ---- Controls ---- */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .btn-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: none;
+    background: var(--ember);
+    color: #0a0a0a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.15s ease;
+    box-shadow: 0 0 24px rgba(255,77,46,0.35);
+  }
+  .btn-circle:active { transform: scale(0.92); }
+  .btn-circle svg { width: 26px; height: 26px; }
+
+  .btn-ghost {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid #2a2521;
+    background: transparent;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-ghost:hover { color: var(--text-primary); border-color: var(--ember-dim); }
+  .btn-ghost svg { width: 20px; height: 20px; }
+
+  /* ---- Custom time modal ---- */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-backdrop.open { opacity: 1; pointer-events: all; }
+
+  .modal {
+    background: var(--bg-elevated);
+    border: 1px solid #2a2521;
+    border-radius: 20px;
+    padding: 28px;
+    width: min(90vw, 320px);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .modal h2 {
+    font-family: var(--font-ui);
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+  }
+
+  .modal input {
+    background: var(--bg);
+    border: 1px solid #2a2521;
+    border-radius: 12px;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    text-align: center;
+    padding: 12px;
+    width: 100%;
+    outline: none;
+  }
+  .modal input:focus { border-color: var(--ember); }
+
+  .modal-actions { display: flex; gap: 10px; }
+  .modal-actions button {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    font-family: var(--font-ui);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .modal-actions .confirm { background: var(--ember); color: #0a0a0a; }
+  .modal-actions .cancel { background: transparent; border: 1px solid #2a2521; color: var(--text-muted); }
+
+  .footer-hint {
+    position: absolute;
+    bottom: 14px;
+    font-size: 0.68rem;
+    color: #3a3530;
+    letter-spacing: 0.05em;
+  }
+
+  @media (max-height: 600px) {
+    .app { gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="vignette"></div>
+
+<div class="app">
+  <div class="ring-wrap" id="ringWrap">
+    <svg viewBox="0 0 200 200">
+      <circle class="ring-track" cx="100" cy="100" r="92"/>
+      <circle class="ring-progress" id="ringProgress" cx="100" cy="100" r="92"
+        stroke-dasharray="578" stroke-dashoffset="0"/>
+    </svg>
+    <div class="time-display" id="timeDisplay" title="Cliquer pour saisir un temps">25:00</div>
+    <div class="session-label" id="sessionLabel">prêt</div>
+  </div>
+
+  <div class="presets" id="presets"></div>
+
+  <div class="controls">
+    <button class="btn-ghost" id="resetBtn" aria-label="Réinitialiser">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+    </button>
+    <button class="btn-circle" id="playBtn" aria-label="Démarrer">
+      <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+    <button class="btn-ghost" id="soundBtn" aria-label="Couper le son">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </button>
+  </div>
+
+  <div class="footer-hint">clique sur le chiffre pour taper un temps précis</div>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <h2>Nouveau temps (minutes)</h2>
+    <input type="number" id="customInput" min="1" max="180" placeholder="ex : 45" inputmode="numeric">
+    <div class="modal-actions">
+      <button class="cancel" id="modalCancel">Annuler</button>
+      <button class="confirm" id="modalConfirm">Créer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const DEFAULT_PRESETS = [5, 15, 25, 50];
+  let presets = JSON.parse(localStorage.getItem('braise_presets') || 'null') || DEFAULT_PRESETS.slice();
+  let activeMinutes = parseFloat(localStorage.getItem('braise_active') || '25');
+
+  let totalSeconds = activeMinutes * 60;
+  let remaining = totalSeconds;
+  let running = false;
+  let intervalId = null;
+  let soundOn = JSON.parse(localStorage.getItem('braise_sound') ?? 'true');
+  let lastTick = null;
+
+  const timeDisplay = document.getElementById('timeDisplay');
+  const sessionLabel = document.getElementById('sessionLabel');
+  const ringProgress = document.getElementById('ringProgress');
+  const ringWrap = document.getElementById('ringWrap');
+  const presetsEl = document.getElementById('presets');
+  const playBtn = document.getElementById('playBtn');
+  const playIcon = document.getElementById('playIcon');
+  const pauseIcon = document.getElementById('pauseIcon');
+  const resetBtn = document.getElementById('resetBtn');
+  const soundBtn = document.getElementById('soundBtn');
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const customInput = document.getElementById('customInput');
+  const modalConfirm = document.getElementById('modalConfirm');
+  const modalCancel = document.getElementById('modalCancel');
+
+  const CIRC = 2 * Math.PI * 92;
+  ringProgress.setAttribute('stroke-dasharray', CIRC);
+
+  function fmt(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+
+  function updateDisplay() {
+    timeDisplay.textContent = fmt(remaining);
+    const frac = totalSeconds > 0 ? remaining / totalSeconds : 0;
+    ringProgress.setAttribute('stroke-dashoffset', CIRC * (1 - frac));
+    document.title = running ? `${fmt(remaining)} — Braise` : 'Braise — Minuteur Pomodoro';
+  }
+
+  function renderPresets() {
+    presetsEl.innerHTML = '';
+    presets.forEach(min => {
+      const chip = document.createElement('button');
+      chip.className = 'chip' + (min === activeMinutes ? ' active' : '');
+      chip.innerHTML = `${min} min`;
+      if (!DEFAULT_PRESETS.includes(min)) {
+        const rm = document.createElement('span');
+        rm.className = 'remove';
+        rm.textContent = '✕';
+        rm.onclick = (e) => {
+          e.stopPropagation();
+          presets = presets.filter(p => p !== min);
+          savePresets();
+          renderPresets();
+        };
+        chip.appendChild(rm);
+      }
+      chip.onclick = () => selectMinutes(min);
+      presetsEl.appendChild(chip);
+    });
+    const addChip = document.createElement('button');
+    addChip.className = 'chip add';
+    addChip.textContent = '+ créer';
+    addChip.onclick = openModal;
+    presetsEl.appendChild(addChip);
+  }
+
+  function savePresets() {
+    localStorage.setItem('braise_presets', JSON.stringify(presets));
+  }
+
+  function selectMinutes(min) {
+    pause();
+    activeMinutes = min;
+    totalSeconds = min * 60;
+    remaining = totalSeconds;
+    localStorage.setItem('braise_active', min);
+    sessionLabel.textContent = 'prêt';
+    renderPresets();
+    updateDisplay();
+  }
+
+  function openModal() {
+    modalBackdrop.classList.add('open');
+    customInput.value = '';
+    setTimeout(() => customInput.focus(), 50);
+  }
+  function closeModal() { modalBackdrop.classList.remove('open'); }
+
+  modalCancel.onclick = closeModal;
+  modalBackdrop.onclick = (e) => { if (e.target === modalBackdrop) closeModal(); };
+  modalConfirm.onclick = () => {
+    const val = parseFloat(customInput.value);
+    if (val && val > 0 && val <= 600) {
+      if (!presets.includes(val)) {
+        presets.push(val);
+        presets.sort((a,b) => a-b);
+        savePresets();
+      }
+      selectMinutes(val);
+      closeModal();
+    }
+  };
+  customInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') modalConfirm.click(); });
+
+  // Click on the big number to type a time directly
+  timeDisplay.addEventListener('click', () => {
+    if (running) return;
+    openModal();
+  });
+
+  function tick() {
+    const now = Date.now();
+    const delta = (now - lastTick) / 1000;
+    lastTick = now;
+    remaining -= delta;
+    if (remaining <= 0) {
+      remaining = 0;
+      updateDisplay();
+      finish();
+      return;
+    }
+    updateDisplay();
+  }
+
+  function start() {
+    if (remaining <= 0) remaining = totalSeconds;
+    running = true;
+    lastTick = Date.now();
+    intervalId = setInterval(tick, 200);
+    playIcon.style.display = 'none';
+    pauseIcon.style.display = 'block';
+    ringWrap.classList.add('breathing');
+    sessionLabel.textContent = 'concentration';
+  }
+
+  function pause() {
+    running = false;
+    clearInterval(intervalId);
+    playIcon.style.display = 'block';
+    pauseIcon.style.display = 'none';
+    ringWrap.classList.remove('breathing');
+    if (sessionLabel.textContent === 'concentration') sessionLabel.textContent = 'en pause';
+  }
+
+  function reset() {
+    pause();
+    remaining = totalSeconds;
+    sessionLabel.textContent = 'prêt';
+    updateDisplay();
+  }
+
+  function finish() {
+    pause();
+    sessionLabel.textContent = 'terminé';
+    if (soundOn) playChime();
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    document.title = '✓ Terminé — Braise';
+    if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification('Braise', { body: 'Le temps est écoulé.' });
+    }
+  }
+
+  // --- Sound: synthesized bell chime via Web Audio, no external files ---
+  let audioCtx = null;
+  function playChime() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const now = audioCtx.currentTime;
+      const notes = [880, 1108.7, 1318.5]; // A5, C#6, E6 — soft ascending bell
+      notes.forEach((freq, i) => {
+        const t0 = now + i * 0.18;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.28, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 1.4);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 1.5);
+      });
+    } catch (e) { /* audio unavailable, fail silently */ }
+  }
+
+  playBtn.onclick = () => {
+    if (audioCtx === null) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+    }
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    running ? pause() : start();
+  };
+  resetBtn.onclick = reset;
+  soundBtn.onclick = () => {
+    soundOn = !soundOn;
+    localStorage.setItem('braise_sound', JSON.stringify(soundOn));
+    soundBtn.style.opacity = soundOn ? '1' : '0.4';
+  };
+  soundBtn.style.opacity = soundOn ? '1' : '0.4';
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && modalBackdrop.classList.contains('open') === false) {
+      e.preventDefault();
+      playBtn.click();
+    }
+  });
+
+  renderPresets();
+  remaining = totalSeconds;
+  updateDisplay();
+
+  // Register service worker for offline / installable PWA
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
