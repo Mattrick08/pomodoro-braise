@@ -364,6 +364,26 @@
   @media (max-height: 600px) {
     .app { gap: 16px; }
   }
+
+  /* Touch devices (mobile/tablet): no physical keyboard, so the keyboard-shortcut
+     hint is just noise — hide it and make tap targets bigger and easier to hit. */
+  @media (hover: none) and (pointer: coarse) {
+    .stopwatch-hint { display: none; }
+
+    .btn-circle {
+      width: 84px;
+      height: 84px;
+    }
+    .btn-circle svg { width: 34px; height: 34px; }
+
+    .btn-ghost {
+      width: 60px;
+      height: 60px;
+    }
+    .btn-ghost svg { width: 26px; height: 26px; }
+
+    .controls { gap: 24px; }
+  }
 </style>
 </head>
 <body>
