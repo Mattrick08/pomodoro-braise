@@ -1,4 +1,4 @@
-const CACHE_NAME = 'braise-v2';
+const CACHE_NAME = 'braise-v3';
 const ASSETS = [
   './',
   './index.html',
